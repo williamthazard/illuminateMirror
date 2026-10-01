@@ -5,7 +5,7 @@
 // stored text and schedule words; main.js owns pausing/resuming it
 // whenever real speech is detected.
 
-export const LOREM_IPSUM = `
+export const MonologueText = `
 Someone must have been telling lies about Josef K., 
 he knew he had done nothing wrong but, one morning, 
 he was arrested. Every day at eight in the morning 
@@ -74,7 +74,7 @@ export class Monologue {
     // the wave in place instead of it jumping ahead on resume.
     this.phaseMs = 0;
 
-    this.words = tokenize(LOREM_IPSUM);
+    this.words = tokenize(MonologueText);
     this.wordIndex = 0;
 
     this.running = false;
