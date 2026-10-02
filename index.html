@@ -261,6 +261,27 @@
       <label for="gateBypassToggle">Bypass gate — testing (g)</label>
       <input type="checkbox" id="gateBypassToggle">
     </span>
+
+    <hr>
+
+    <h3>Mic passthrough (speaker)</h3>
+    <span class="row">
+      <label for="stylePassthroughEnabled">Enabled</label>
+      <input type="checkbox" id="stylePassthroughEnabled">
+    </span>
+    <span class="row">
+      <label for="stylePassthroughGated">Gated (within gain limits only)</label>
+      <input type="checkbox" id="stylePassthroughGated">
+    </span>
+    <label>
+      <span class="row"><span>Gain</span><span id="stylePassthroughGainVal">1.0x</span></span>
+      <input type="range" id="stylePassthroughGain" min="0" max="4" step="0.1" value="1">
+    </label>
+    <label>Output device
+      <select id="stylePassthroughDevice">
+        <option value="">Default</option>
+      </select>
+    </label>
   </div>
 
   <script type="module" src="/src/main.js"></script>

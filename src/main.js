@@ -6,6 +6,7 @@ import { Monologue } from './monologue.js';
 import { VideoInput, MIRROR_VIDEOS, listCameraDevices } from './videoInput.js';
 import { MidiOutput } from './midiOutput.js';
 import { MicVolumeMeter } from './micVolume.js';
+import { MicPassthrough, listAudioOutputDevices } from './micPassthrough.js';
 
 // ---- DOM --------------------------------------------------------------
 const glCanvas = document.getElementById('gl');
@@ -66,6 +67,11 @@ const styleUtteranceEndEl = document.getElementById('styleUtteranceEnd');
 const styleUtteranceEndVal = document.getElementById('styleUtteranceEndVal');
 const gateReadoutEl = document.getElementById('gateReadout');
 const gateBypassToggleEl = document.getElementById('gateBypassToggle');
+const stylePassthroughEnabledEl = document.getElementById('stylePassthroughEnabled');
+const stylePassthroughGatedEl = document.getElementById('stylePassthroughGated');
+const stylePassthroughGainEl = document.getElementById('stylePassthroughGain');
+const stylePassthroughGainVal = document.getElementById('stylePassthroughGainVal');
+const stylePassthroughDeviceEl = document.getElementById('stylePassthroughDevice');
 
 // Mirror clip options aren't hardcoded in index.html — added here from the
 // single manifest in videoInput.js so there's one place that knows about them.
@@ -104,6 +110,9 @@ const DEFAULT_STYLE = {
   // recognizer, so only speech close to the mic gets transcribed. A pause
   // of utteranceEndMs after gated speech ends the utterance.
   gateOpenDb: -30, gateCloseDb: -40, utteranceEndMs: 800,
+  // Live mic -> speaker passthrough, audible only while the proximity gate
+  // above is open — see micPassthrough.js.
+  passthroughEnabled: false, passthroughGated: false, passthroughGain: 1, passthroughDeviceId: '',
 };
 
 function loadStyle() {
@@ -171,6 +180,50 @@ navigator.mediaDevices?.addEventListener?.('devicechange', refreshCameraDevices)
 // the Web Speech API itself carries no volume information.
 const midiOutput = new MidiOutput();
 const micVolume = new MicVolumeMeter();
+const micPassthrough = new MicPassthrough();
+micPassthrough.setGated(initialStyle.passthroughGated);
+micPassthrough.setVolume(initialStyle.passthroughGain);
+let started = false; // true once the start overlay has been clicked
+
+// Only (re)applies once the show has actually started — mic/camera/MIDI
+// access is deliberately deferred to the Start click everywhere else in
+// this file, and passthrough follows the same rule rather than opening a
+// mic stream the moment the panel checkbox is toggled pre-start.
+function setPassthroughEnabled(enabled) {
+  if (!started) return;
+  if (enabled) {
+    if (micPassthrough.state === 'off') {
+      micPassthrough.start()
+        .then(() => {
+          // Labels are blank until a getUserMedia permission has been
+          // granted — this start is the first chance to show real ones.
+          refreshPassthroughDevices();
+          micPassthrough.setOutputDevice(stylePassthroughDeviceEl.value);
+        })
+        .catch((e) => logError('Passthrough unavailable: ' + e.message));
+    }
+  } else {
+    micPassthrough.stop();
+  }
+}
+
+// Mirrors refreshCameraDevices below — device labels are blank until some
+// getUserMedia permission has been granted, so the first real population
+// happens after Start.
+async function refreshPassthroughDevices(preferredValue = stylePassthroughDeviceEl.value) {
+  const outputs = await listAudioOutputDevices();
+  stylePassthroughDeviceEl.innerHTML = '<option value="">Default</option>';
+  outputs.forEach((d, i) => {
+    const opt = document.createElement('option');
+    opt.value = d.deviceId;
+    opt.textContent = d.label || `Output ${i + 1}`;
+    stylePassthroughDeviceEl.appendChild(opt);
+  });
+  const stillExists = [...stylePassthroughDeviceEl.options].some((o) => o.value === preferredValue);
+  stylePassthroughDeviceEl.value = stillExists ? preferredValue : '';
+}
+refreshPassthroughDevices(initialStyle.passthroughDeviceId);
+navigator.mediaDevices?.addEventListener?.('devicechange', () => refreshPassthroughDevices());
 let corpusVelocity = initialStyle.corpusVelocity;
 let micFloorDb = initialStyle.micFloorDb;
 let micCeilDb = initialStyle.micCeilDb;
@@ -241,6 +294,11 @@ function applyStyleToPanel(style) {
   styleGateCloseVal.textContent = `${style.gateCloseDb}dB`;
   styleUtteranceEndEl.value = style.utteranceEndMs;
   styleUtteranceEndVal.textContent = `${(style.utteranceEndMs / 1000).toFixed(2)}s`;
+  stylePassthroughEnabledEl.checked = style.passthroughEnabled;
+  stylePassthroughGatedEl.checked = style.passthroughGated;
+  stylePassthroughGainEl.value = style.passthroughGain;
+  stylePassthroughGainVal.textContent = `${style.passthroughGain.toFixed(1)}x`;
+  stylePassthroughDeviceEl.value = style.passthroughDeviceId;
 }
 applyStyleToPanel(initialStyle);
 
@@ -272,6 +330,10 @@ function onStyleInput() {
     gateOpenDb: Number(styleGateOpenEl.value),
     gateCloseDb: Number(styleGateCloseEl.value),
     utteranceEndMs: Number(styleUtteranceEndEl.value),
+    passthroughEnabled: stylePassthroughEnabledEl.checked,
+    passthroughGated: stylePassthroughGatedEl.checked,
+    passthroughGain: Number(stylePassthroughGainEl.value),
+    passthroughDeviceId: stylePassthroughDeviceEl.value,
   };
   styleWeightVal.textContent = style.fontWeight;
   styleSizeVal.textContent = `${Math.round(style.sizeScale * 100)}%`;
@@ -329,6 +391,11 @@ function onStyleInput() {
   monologue.setBaseDelayMs(style.corpusBaseMs);
   monologue.setAmplitudeMs(style.corpusAmplitudeMs);
   monologue.setFrequencyHz(style.corpusFrequencyHz);
+  stylePassthroughGainVal.textContent = `${style.passthroughGain.toFixed(1)}x`;
+  setPassthroughEnabled(style.passthroughEnabled);
+  micPassthrough.setGated(style.passthroughGated);
+  micPassthrough.setVolume(style.passthroughGain);
+  if (micPassthrough.state === 'live') micPassthrough.setOutputDevice(style.passthroughDeviceId);
   saveStyle(style);
 }
 [
@@ -339,6 +406,7 @@ function onStyleInput() {
   styleCorpusAlphaEl, styleUserAlphaEl, styleUserWordSizeEl, styleVolumeBoostEl,
   styleCorpusVelocityEl, styleMicFloorEl, styleMicCeilEl,
   styleGateOpenEl, styleGateCloseEl, styleUtteranceEndEl,
+  stylePassthroughEnabledEl, stylePassthroughGatedEl, stylePassthroughGainEl, stylePassthroughDeviceEl,
 ].forEach((el) => {
   el.addEventListener('input', onStyleInput);
 });
@@ -735,6 +803,11 @@ const recognizer = createSpeechRecognizer({
   onLevel: (db, gateOpen) => {
     gateReadoutEl.textContent = `${db.toFixed(1)}dB · ${gateOpen ? 'open' : 'closed'}`;
     gateReadoutEl.style.color = gateOpen ? '#6f6' : '';
+    // The exact same signal driving the readout above also feeds the
+    // passthrough gate — only applied when "Gated" is checked (see
+    // micPassthrough.setGated), otherwise passthrough ignores it and plays
+    // continuously.
+    micPassthrough.setGateOpen(gateOpen);
   },
 });
 recognizer.setGate(initialStyle);
@@ -745,6 +818,7 @@ if (!recognizer.supported) {
 
 startBtn.addEventListener('click', () => {
   startOverlay.hidden = true;
+  started = true;
   recognizer.start();
   monologue.start();
   // Camera is optional — if it's denied or absent, the video fill just
@@ -754,6 +828,7 @@ startBtn.addEventListener('click', () => {
   // denied, word notes just stop firing rather than breaking anything else.
   midiOutput.connect('IAC').catch((e) => logError('MIDI unavailable: ' + e.message));
   micVolume.start().catch((e) => logError('Mic volume unavailable: ' + e.message));
+  setPassthroughEnabled(stylePassthroughEnabledEl.checked);
 });
 
 // Manual text injection for tech rehearsal / tuning without a live mic:
@@ -770,4 +845,5 @@ window.__illuminate = {
   monologue,
   midiOutput,
   micVolume,
+  micPassthrough,
 };
