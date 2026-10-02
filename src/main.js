@@ -10,6 +10,8 @@ import { MicPassthrough, listAudioOutputDevices } from './micPassthrough.js';
 
 // ---- DOM --------------------------------------------------------------
 const glCanvas = document.getElementById('gl');
+const frameRingEl = document.getElementById('frameRing');
+const frameGhostEls = [...document.querySelectorAll('.frameGhost')];
 const dotEl = document.getElementById('dot');
 const startOverlay = document.getElementById('start');
 const startBtn = document.getElementById('startBtn');
@@ -422,10 +424,158 @@ function onStyleInput() {
 });
 
 // ---- Resize -------------------------------------------------------------
+// Frame crop: when on, the canvas (text + history layers, the whole piece)
+// is cropped to an adjustable rectangle instead of filling the viewport,
+// replacing what used to be a static picture-frame image — this is the
+// same crop-and-react behavior the oval version used, just rectangular.
+// The box is sized to fit the viewport at frameAspect (width / height),
+// then scaled/nudged from there. Persisted across reloads (unlike
+// frameEnabled itself, or the 'd'/'p' toggles) since dialing this in is
+// real physical setup work for a specific room/projector; reset with
+// Backspace/Delete.
+//
+// Outline: a thin, crisp ring hugging the crop that, as the overall mic
+// level rises (all sound in the room, not just speech past the proximity
+// gate), gets more saturated and thicker, then eases back down. Widths are
+// in px. The level uses the mic ceiling shared with MIDI velocity, but
+// starts RING_FLOOR_OFFSET_DB above the shared mic floor, so room noise
+// below that leaves the ring untouched and only real sound moves it.
+//
+// Its resting color is the average color of the background video (whichever
+// source is playing — a mirror clip or the camera), or white when there's no
+// video. When loud it heads to a vivid, saturated version of that same hue.
+const RING_REST = { width: 3 };
+const RING_LOUD = { sat: 100, light: 58, width: 9 };
+const RING_FALLBACK_HUE = 205; // hue to saturate toward when the base color is white/gray
+const RING_MIN_LIGHT = 55;     // a dark video's average is lifted to this, or the ring would vanish on black
+const RING_GRAY_SAT = 6;       // below this saturation the base has no meaningful hue
+const RING_COLOR_TAU_MS = 700; // how slowly the base color follows the video
+const RING_SAMPLE_MS = 120;
+const RING_FLOOR_OFFSET_DB = 10;
+// The effect is scaled by who's currently "speaking" on the display: while a
+// user utterance is in progress it never drops below RING_USER_BASELINE (so
+// the ring is visibly alive during speech even if the room is quiet), and
+// while the corpus monologue is running it's scaled down by
+// RING_CORPUS_GAIN so the piece's own output stirs it less.
+const RING_USER_BASELINE = 0.25;
+const RING_CORPUS_GAIN = 0.65;
+const RING_ATTACK_MS = 60;
+const RING_RELEASE_MS = 500;
+let ringLevel = 0;
+
+// Ghost rings: fainter, thinner copies of the outline, each jumping to its own
+// new random offset every few tenths of a second (a fresh random direction,
+// eased into), further off-center and more visible the louder it gets, and
+// invisible at rest. Each ghost has its own reach and peak opacity, so the
+// second sits farther out and fainter than the first (one entry per element
+// in the page).
+const GHOSTS = [
+  { maxOffsetPx: 26, maxAlpha: 0.55 },
+  { maxOffsetPx: 42, maxAlpha: 0.38 },
+].map((g, i) => ({ ...g, el: frameGhostEls[i], dirX: 0, dirY: 0, nextJumpT: 0, x: 0, y: 0 }));
+const GHOST_WIDTH_PX = 2;
+const GHOST_JUMP_MIN_MS = 70;
+const GHOST_JUMP_MAX_MS = 210;
+const GHOST_FOLLOW_MS = 60;
+const ringColor = { r: 255, g: 255, b: 255 }; // smoothed base color (starts white)
+let ringTarget = { r: 255, g: 255, b: 255 };  // what it's easing toward: the video average, or white
+let ringLastSampleT = 0;
+const ringSampleCtx = document.createElement('canvas').getContext('2d', { willReadFrequently: true });
+ringSampleCtx.canvas.width = 16;
+ringSampleCtx.canvas.height = 9;
+
+function sampleRingTarget(now) {
+  if (now - ringLastSampleT < RING_SAMPLE_MS) return;
+  ringLastSampleT = now;
+  if (!videoInput.ready) {
+    ringTarget = { r: 255, g: 255, b: 255 };
+    return;
+  }
+  ringSampleCtx.drawImage(videoInput.video, 0, 0, 16, 9);
+  const px = ringSampleCtx.getImageData(0, 0, 16, 9).data;
+  let r = 0, g = 0, b = 0;
+  for (let i = 0; i < px.length; i += 4) { r += px[i]; g += px[i + 1]; b += px[i + 2]; }
+  const n = px.length / 4;
+  ringTarget = { r: r / n, g: g / n, b: b / n };
+}
+
+function rgbToHsl(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  if (max === min) return { h: 0, s: 0, l: l * 100 };
+  const d = max - min;
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+  let h;
+  if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
+  else if (max === g) h = (b - r) / d + 2;
+  else h = (r - g) / d + 4;
+  return { h: h * 60, s: s * 100, l: l * 100 };
+}
+
+const FRAME_FILL = 0.92; // fraction of the best-fit box the crop occupies at scale 1
+let frameEnabled = false;
+
+const FRAME_CROP_STORAGE_KEY = 'illuminate:frameCrop';
+const DEFAULT_FRAME_CROP = { frameOffsetX: 0, frameOffsetY: 0, frameScale: 1, frameAspect: 16 / 9 };
+
+function loadFrameCrop() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(FRAME_CROP_STORAGE_KEY));
+    return { ...DEFAULT_FRAME_CROP, ...saved };
+  } catch (e) {
+    return { ...DEFAULT_FRAME_CROP };
+  }
+}
+
+function saveFrameCrop() {
+  try {
+    localStorage.setItem(FRAME_CROP_STORAGE_KEY, JSON.stringify({ frameOffsetX, frameOffsetY, frameScale, frameAspect }));
+  } catch (e) { /* storage unavailable */ }
+}
+
+let { frameOffsetX, frameOffsetY, frameScale, frameAspect } = loadFrameCrop();
+
 function resize() {
   const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
-  const boxW = window.innerWidth;
-  const boxH = window.innerHeight;
+  let boxW = window.innerWidth;
+  let boxH = window.innerHeight;
+
+  if (frameEnabled) {
+    // Largest box of frameAspect that fits the viewport, shrunk a little,
+    // then scaled from its center before the offset shifts it — so scaling
+    // and nudging compose the same way regardless of order.
+    const fit = Math.min(window.innerHeight, window.innerWidth / frameAspect) * FRAME_FILL * frameScale;
+    boxH = fit;
+    boxW = fit * frameAspect;
+    const left = (window.innerWidth - boxW) / 2 + frameOffsetX;
+    const top = (window.innerHeight - boxH) / 2 + frameOffsetY;
+    glCanvas.style.left = `${left}px`;
+    glCanvas.style.top = `${top}px`;
+    glCanvas.style.right = 'auto';
+    glCanvas.style.bottom = 'auto';
+    frameRingEl.style.left = `${left}px`;
+    frameRingEl.style.top = `${top}px`;
+    frameRingEl.style.width = `${boxW}px`;
+    frameRingEl.style.height = `${boxH}px`;
+    frameRingEl.hidden = false;
+    for (const ghost of GHOSTS) {
+      ghost.el.style.left = `${left}px`;
+      ghost.el.style.top = `${top}px`;
+      ghost.el.style.width = `${boxW}px`;
+      ghost.el.style.height = `${boxH}px`;
+      ghost.el.hidden = false;
+    }
+  } else {
+    // Falls back to the plain inset:0 rule in index.html — full viewport,
+    // exactly the pre-frame-feature behavior.
+    glCanvas.style.left = '';
+    glCanvas.style.top = '';
+    glCanvas.style.right = '';
+    glCanvas.style.bottom = '';
+    frameRingEl.hidden = true;
+    for (const ghost of GHOSTS) ghost.el.hidden = true;
+  }
 
   const w = Math.round(boxW * dpr);
   const h = Math.round(boxH * dpr);
@@ -458,6 +608,42 @@ function frame(t) {
 
   textLayer.update(dtMs);
   historyLayer.update(dtMs);
+  if (frameEnabled) {
+    const micLevel = micVolume.getNormalized(Math.min(micFloorDb + RING_FLOOR_OFFSET_DB, micCeilDb - 3), micCeilDb);
+    const target = userSpeaking ? Math.max(micLevel, RING_USER_BASELINE) : micLevel * RING_CORPUS_GAIN;
+    ringLevel += (target - ringLevel) * (1 - Math.exp(-dtMs / (target > ringLevel ? RING_ATTACK_MS : RING_RELEASE_MS)));
+    sampleRingTarget(t);
+    const follow = 1 - Math.exp(-dtMs / RING_COLOR_TAU_MS);
+    ringColor.r += (ringTarget.r - ringColor.r) * follow;
+    ringColor.g += (ringTarget.g - ringColor.g) * follow;
+    ringColor.b += (ringTarget.b - ringColor.b) * follow;
+    const base = rgbToHsl(ringColor.r, ringColor.g, ringColor.b);
+    const hue = base.s < RING_GRAY_SAT ? RING_FALLBACK_HUE : base.h;
+    const baseLight = Math.max(base.l, RING_MIN_LIGHT);
+    const sat = base.s + (RING_LOUD.sat - base.s) * ringLevel;
+    const light = baseLight + (RING_LOUD.light - baseLight) * ringLevel;
+    frameRingEl.style.setProperty('--ring-color', `hsl(${hue.toFixed(1)} ${sat.toFixed(1)}% ${light.toFixed(1)}%)`);
+    const width = RING_REST.width + (RING_LOUD.width - RING_REST.width) * ringLevel;
+    frameRingEl.style.setProperty('--ring-spread', `${width.toFixed(2)}px`);
+
+    const ghostFollow = 1 - Math.exp(-dtMs / GHOST_FOLLOW_MS);
+    const ringColorValue = frameRingEl.style.getPropertyValue('--ring-color');
+    for (const ghost of GHOSTS) {
+      if (t >= ghost.nextJumpT) {
+        const angle = Math.random() * Math.PI * 2;
+        const reach = 0.4 + Math.random() * 0.6;
+        ghost.dirX = Math.cos(angle) * reach;
+        ghost.dirY = Math.sin(angle) * reach;
+        ghost.nextJumpT = t + GHOST_JUMP_MIN_MS + Math.random() * (GHOST_JUMP_MAX_MS - GHOST_JUMP_MIN_MS);
+      }
+      ghost.x += (ghost.dirX * ghost.maxOffsetPx * ringLevel - ghost.x) * ghostFollow;
+      ghost.y += (ghost.dirY * ghost.maxOffsetPx * ringLevel - ghost.y) * ghostFollow;
+      ghost.el.style.transform = `translate(${ghost.x.toFixed(2)}px, ${ghost.y.toFixed(2)}px)`;
+      ghost.el.style.opacity = (ghost.maxAlpha * ringLevel).toFixed(3);
+      ghost.el.style.setProperty('--ring-color', ringColorValue);
+      ghost.el.style.setProperty('--ghost-width', `${GHOST_WIDTH_PX}px`);
+    }
+  }
   if (renderer) {
     try {
       renderer.render({
@@ -480,7 +666,8 @@ function frame(t) {
       `mode ${mode}  phase ${textLayer.phase}  alpha ${textLayer.alpha.toFixed(2)}\n` +
       `src ${videoInput.source}  cam ${cam}  ready ${videoInput.ready}  ${videoInput.video.videoWidth}x${videoInput.video.videoHeight}\n` +
       `influence ${videoInfluence.toFixed(2)}  gain ${videoGain.toFixed(1)}  shading ${shading}\n` +
-      `midi ${midi} (${midiOutput.portName ?? 'no port'})  mic ${mic}  level ${micVolume.db.toFixed(1)}dB  vel ${micVolume.getVelocity(micFloorDb, micCeilDb)}`;
+      `midi ${midi} (${midiOutput.portName ?? 'no port'})  mic ${mic}  level ${micVolume.db.toFixed(1)}dB  vel ${micVolume.getVelocity(micFloorDb, micCeilDb)}\n` +
+      `frame ${frameEnabled ? 'on' : 'off'} (f to toggle)  offset ${frameOffsetX}, ${frameOffsetY} (arrows)  scale ${Math.round(frameScale * 100)}% (+/-)  aspect ${frameAspect.toFixed(2)} w/h (shift +/-)  [backspace to reset]`;
   }
 
   requestAnimationFrame(frame);
@@ -493,6 +680,9 @@ window.addEventListener('keydown', (e) => {
     debugEl.hidden = !debugOn;
   } else if (e.key === 'p') {
     stylePanel.hidden = !stylePanel.hidden;
+  } else if (e.key === 'f') {
+    frameEnabled = !frameEnabled;
+    resize();
   } else if (e.key === 'g') {
     setGateBypass(!gateBypass);
   } else if (/^[1-9]$/.test(e.key)) {
@@ -506,6 +696,42 @@ window.addEventListener('keydown', (e) => {
       styleVideoSourceEl.value = VIDEO_SOURCE_ORDER[idx];
       styleVideoSourceEl.dispatchEvent(new Event('input', { bubbles: true }));
     }
+  } else if (frameEnabled && (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+    // Fine position nudge — only live while the frame is actually showing,
+    // so plain arrow keys stay free otherwise.
+    const tag = document.activeElement?.tagName;
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+
+    const step = 1;
+    frameOffsetX += e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0;
+    frameOffsetY += e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0;
+    resize();
+    saveFrameCrop();
+    e.preventDefault();
+  } else if (frameEnabled && (e.key === '+' || e.key === '=' || e.key === '-' || e.key === '_')) {
+    // '=' is included alongside '+' since that's the unshifted key that
+    // types '+' on a standard layout, likewise '_' alongside '-'. Shift
+    // (checked via e.shiftKey, so numpad '+' works too) changes the frame's
+    // shape (width relative to height) instead of its size.
+    const tag = document.activeElement?.tagName;
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+
+    const grow = e.key === '+' || e.key === '=';
+    if (e.shiftKey) {
+      frameAspect = Math.max(0.2, Math.min(5, frameAspect + (grow ? 0.02 : -0.02)));
+    } else {
+      frameScale = Math.max(0.1, Math.min(5, frameScale + (grow ? 0.02 : -0.02)));
+    }
+    resize();
+    saveFrameCrop();
+    e.preventDefault();
+  } else if (frameEnabled && (e.key === 'Backspace' || e.key === 'Delete')) {
+    frameOffsetX = DEFAULT_FRAME_CROP.frameOffsetX;
+    frameOffsetY = DEFAULT_FRAME_CROP.frameOffsetY;
+    frameScale = DEFAULT_FRAME_CROP.frameScale;
+    frameAspect = DEFAULT_FRAME_CROP.frameAspect;
+    resize();
+    saveFrameCrop();
   }
 });
 
