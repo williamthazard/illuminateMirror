@@ -13,6 +13,25 @@ function tokenize(text) {
   return text.split(/\s+/).filter(Boolean);
 }
 
+// Groups words into real sentences — each run of words up to and including
+// one ending in ./!/? (optionally followed by a closing quote) — for
+// 'sentence' pace mode. Unlike the random word-count chunking used by the
+// other modes, this reflects the literary text's own actual structure.
+function tokenizeSentences(text) {
+  const words = tokenize(text);
+  const sentences = [];
+  let current = [];
+  for (const word of words) {
+    current.push(word);
+    if (/[.!?]["'’”]*$/.test(word)) {
+      sentences.push(current);
+      current = [];
+    }
+  }
+  if (current.length) sentences.push(current);
+  return sentences;
+}
+
 export class Monologue {
   constructor({
     onWord, onFinal, minBurstWords = 4, maxBurstWords = 12,
@@ -30,6 +49,11 @@ export class Monologue {
     // 'sine': the per-word delay rides a wave around baseDelayMs, so the
     // pace continuously speeds up and slows down (animates by default).
     // 'linear': a flat, constant baseDelayMs — no variation.
+    // 'sentence': each real sentence (see tokenizeSentences) gets its own
+    // pace, picked once at random from [baseDelayMs-amplitudeMs,
+    // baseDelayMs+amplitudeMs] and held for every word in that sentence —
+    // naturalistic in a different way than the other two: distinct but
+    // internally steady, rather than continuously drifting or perfectly flat.
     this.mode = mode;
     this.baseDelayMs = baseDelayMs;
     this.minDelayMs = minDelayMs; // floor, so a large amplitude can't reach zero/negative
@@ -42,6 +66,13 @@ export class Monologue {
 
     this.words = tokenize(MonologueText);
     this.wordIndex = 0;
+
+    // 'sentence' mode's own position, independent of wordIndex/chunking
+    // above (which the other two modes still use unchanged).
+    this.sentences = tokenizeSentences(MonologueText);
+    this.sentenceIndex = 0;
+    this.sentenceWordIndex = 0;
+    this.sentencePaceMs = null; // re-rolled whenever null — see _scheduleNext()
 
     this.running = false;
     this.paused = false;
@@ -94,6 +125,9 @@ export class Monologue {
 
   setMode(mode) {
     this.mode = mode;
+    // Force a fresh roll rather than possibly reusing a stale pace left
+    // over from the last time 'sentence' mode was active.
+    if (mode === 'sentence') this.sentencePaceMs = null;
     this._reschedule();
   }
 
@@ -118,6 +152,11 @@ export class Monologue {
     // Always begin a fresh utterance on resume rather than picking a
     // half-spoken one back up where it left off.
     this._resetChunk();
+    // 'sentence' mode: force a fresh pace roll too, rather than resuming a
+    // mid-sentence pace that may have been set a while ago — the words
+    // themselves still continue naturally from where they left off (no
+    // repeats, no skips), only the pace resets.
+    this.sentencePaceMs = null;
     this._scheduleNext();
   }
 
@@ -133,8 +172,20 @@ export class Monologue {
     return Math.max(this.minDelayMs, this.baseDelayMs + wave);
   }
 
+  // The pace for the sentence about to be spoken — rolled fresh (and then
+  // held fixed) whenever sentencePaceMs has been cleared to null, i.e. at
+  // the start of each new sentence, and after resume().
+  _currentSentenceDelayMs() {
+    if (this.sentencePaceMs === null) {
+      const min = Math.max(this.minDelayMs, this.baseDelayMs - this.amplitudeMs);
+      const max = Math.max(min, this.baseDelayMs + this.amplitudeMs);
+      this.sentencePaceMs = min + Math.random() * (max - min);
+    }
+    return this.sentencePaceMs;
+  }
+
   _scheduleNext() {
-    const delay = this._currentDelayMs();
+    const delay = this.mode === 'sentence' ? this._currentSentenceDelayMs() : this._currentDelayMs();
     this.timeoutId = setTimeout(() => {
       this.phaseMs += delay;
       this._tick();
@@ -144,15 +195,31 @@ export class Monologue {
   _tick() {
     if (!this.running || this.paused) return;
 
-    const firstOfUtterance = this.chunkWordCount === 0;
-    const word = this._nextWord();
-    this.chunkWordCount++;
+    if (this.mode === 'sentence') {
+      const sentence = this.sentences[this.sentenceIndex];
+      const firstOfUtterance = this.sentenceWordIndex === 0;
+      const word = sentence[this.sentenceWordIndex];
+      this.sentenceWordIndex++;
 
-    this.onWord(word, { firstOfUtterance });
+      this.onWord(word, { firstOfUtterance });
 
-    if (this.chunkWordCount >= this.chunkTarget) {
-      this.onFinal();
-      this._resetChunk();
+      if (this.sentenceWordIndex >= sentence.length) {
+        this.onFinal();
+        this.sentenceIndex = (this.sentenceIndex + 1) % this.sentences.length;
+        this.sentenceWordIndex = 0;
+        this.sentencePaceMs = null; // next sentence rolls its own pace
+      }
+    } else {
+      const firstOfUtterance = this.chunkWordCount === 0;
+      const word = this._nextWord();
+      this.chunkWordCount++;
+
+      this.onWord(word, { firstOfUtterance });
+
+      if (this.chunkWordCount >= this.chunkTarget) {
+        this.onFinal();
+        this._resetChunk();
+      }
     }
 
     this._scheduleNext();

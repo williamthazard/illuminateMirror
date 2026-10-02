@@ -50,6 +50,7 @@ const styleCorpusAmplitudeVal = document.getElementById('styleCorpusAmplitudeVal
 const styleCorpusFrequencyEl = document.getElementById('styleCorpusFrequency');
 const styleCorpusFrequencyVal = document.getElementById('styleCorpusFrequencyVal');
 const corpusSineControlsEl = document.getElementById('corpusSineControls');
+const corpusAmplitudeControlEl = document.getElementById('corpusAmplitudeControl');
 const styleVideoSourceEl = document.getElementById('styleVideoSource');
 const styleCameraDeviceEl = document.getElementById('styleCameraDevice');
 const styleVideoInfluenceEl = document.getElementById('styleVideoInfluence');
@@ -330,6 +331,7 @@ function applyStyleToPanel(style) {
   styleCorpusFrequencyEl.value = style.corpusFrequencyHz;
   styleCorpusFrequencyVal.textContent = formatFrequency(style.corpusFrequencyHz);
   corpusSineControlsEl.hidden = style.corpusMode !== 'sine';
+  corpusAmplitudeControlEl.hidden = style.corpusMode === 'linear';
   styleVideoSourceEl.value = style.videoSource;
   styleCameraDeviceEl.value = style.cameraDeviceId;
   styleVideoInfluenceEl.value = Math.round(style.videoInfluence * 100);
@@ -403,6 +405,7 @@ function onStyleInput() {
   styleCorpusAmplitudeVal.textContent = `${style.corpusAmplitudeMs}ms`;
   styleCorpusFrequencyVal.textContent = formatFrequency(style.corpusFrequencyHz);
   corpusSineControlsEl.hidden = style.corpusMode !== 'sine';
+  corpusAmplitudeControlEl.hidden = style.corpusMode === 'linear';
   styleVideoInfluenceVal.textContent = `${Math.round(style.videoInfluence * 100)}%`;
   styleVideoGainVal.textContent = `${style.videoGain.toFixed(1)}x`;
   videoInfluence = style.videoInfluence;
