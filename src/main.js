@@ -517,7 +517,10 @@ const FRAME_FILL = 0.92; // fraction of the best-fit box the crop occupies at sc
 let frameEnabled = false;
 
 const FRAME_CROP_STORAGE_KEY = 'illuminate:frameCrop';
-const DEFAULT_FRAME_CROP = { frameOffsetX: 0, frameOffsetY: 0, frameScale: 1, frameAspect: 16 / 9 };
+// frameAspect default matches the old bitmap frame's own content window
+// (the fraction of the frame image the canvas actually showed through, not
+// the frame image's own outer aspect) — 0.304/0.655 of a 1366x768 image.
+const DEFAULT_FRAME_CROP = { frameOffsetX: 0, frameOffsetY: 0, frameScale: 1, frameAspect: (0.304 / 0.655) * (1366 / 768) };
 
 function loadFrameCrop() {
   try {
