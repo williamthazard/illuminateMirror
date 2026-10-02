@@ -24,6 +24,11 @@ const SUSTAIN_CC = 64; // damper/sustain pedal
 // 'user' is channel 4, 'corpus' is channel 5).
 export const CHANNEL = { user: 3, corpus: 4 };
 
+// The granular engine's own CC/mixer control surface (see the file comment
+// above) lives on channel 3 as shown in a DAW — 0-indexed channel 2, MIDI
+// status byte 0xB2 for a Control Change there.
+export const GRANULAR_CHANNEL = 2;
+
 function letterIndex(ch) {
   return ch.charCodeAt(0) - 97; // 'a' -> 0 .. 'z' -> 25
 }
@@ -131,5 +136,11 @@ export class MidiOutput {
       this.pendingOffs.delete(key);
     }, NOTE_GATE_MS);
     this.pendingOffs.set(key, timeoutId);
+  }
+
+  // channel: 0-indexed (see CHANNEL/GRANULAR_CHANNEL above). ccNumber/value: 0-127.
+  sendCC(channel, ccNumber, value) {
+    if (!this.output) return;
+    this.output.send([0xb0 | channel, ccNumber, Math.max(0, Math.min(127, Math.round(value)))]);
   }
 }
