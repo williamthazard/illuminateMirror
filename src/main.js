@@ -920,13 +920,6 @@ const RESUME_GRACE_MS = 2500;
 let userSpeaking = false;
 let resumeTimer = null;
 
-// The overlay phrase accumulates every word of the current corpus chunk
-// (reset on each onFinal), the same way a real spoken utterance grows —
-// setPhrase(word) alone would instantly replace each word with the next,
-// so only the newest one was ever visible there (the history log below
-// still had every word; the big phrase did not).
-let corpusChunkWords = [];
-
 const monologue = new Monologue({
   mode: initialStyle.corpusMode,
   baseDelayMs: initialStyle.corpusBaseMs,
@@ -934,14 +927,12 @@ const monologue = new Monologue({
   frequencyHz: initialStyle.corpusFrequencyHz,
   onWord: (word, meta) => {
     historyLayer.addWord(word, { ...meta, source: 'corpus' });
-    corpusChunkWords.push(word);
-    textLayer.setPhrase(corpusChunkWords.join(' '), { dim: true });
+    textLayer.setPhrase(word, { dim: true });
     midiOutput.sendWordNote(word, 'corpus', corpusVelocity);
   },
   onFinal: () => {
     historyLayer.endUtterance();
     textLayer.finishUtterance();
-    corpusChunkWords = [];
     checkAutoRotate();
   },
 });
@@ -958,10 +949,6 @@ function onSpeechResult(text, isFinal) {
     // entrance instead of silently overwriting it in place.
     historyLayer.endUtterance();
     textLayer.finishUtterance();
-    // The monologue's own onFinal won't fire for this abandoned chunk (it
-    // was cut off mid-burst), so this is reset here instead — otherwise its
-    // leftover words would prepend onto the next corpus phrase once resumed.
-    corpusChunkWords = [];
   }
   clearTimeout(resumeTimer);
   resumeTimer = setTimeout(() => {
