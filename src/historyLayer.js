@@ -102,14 +102,20 @@ export class HistoryLayer {
 
   // Streams a single word in as it's produced — by real speech (source:
   // 'user', default) or the corpus monologue (source: 'corpus', dimmer).
-  // Pass firstOfUtterance to capitalize the leading word. `volume` (0..1,
-  // user words only) is this word's live loudness at the moment it was
-  // spoken — baked in now rather than read live later, since a word's
+  // Pass firstOfUtterance to capitalize the leading word — only applied to
+  // real speech: a recognizer transcript arrives with no capitalization of
+  // its own, but the corpus monologue is literary text that already has its
+  // own real capitalization throughout, and "utterance" there is really
+  // just a random word-count chunk (for pacing/MIDI-note batching) with no
+  // relation to its actual sentence breaks — forcing a capital at one of
+  // those chunk boundaries would capitalize a word mid-sentence. `volume`
+  // (0..1, user words only) is this word's live loudness at the moment it
+  // was spoken — baked in now rather than read live later, since a word's
   // size shouldn't keep changing after it's already landed in the log.
   addWord(word, { firstOfUtterance = false, source = 'user', volume = 0 } = {}) {
     word = word.trim();
     if (!word) return;
-    if (firstOfUtterance) word = word.charAt(0).toUpperCase() + word.slice(1);
+    if (firstOfUtterance && source === 'user') word = word.charAt(0).toUpperCase() + word.slice(1);
     this.words.push({ text: word, t: performance.now(), source, volume: Math.max(0, Math.min(1, volume)) });
   }
 
@@ -120,11 +126,15 @@ export class HistoryLayer {
     return baseFontSize * this.userWordSizeScale * (1 + word.volume * this.volumeSizeBoost);
   }
 
-  // Closes out a run of addWord() calls with trailing punctuation.
+  // Closes out a run of real-speech addWord() calls with trailing
+  // punctuation — a recognizer transcript has none of its own. Never
+  // applied to corpus: that chunk boundary is a random word count, not a
+  // real sentence break, and the literary source text already ends its
+  // actual sentences with real punctuation of its own.
   endUtterance() {
     if (!this.words.length) return;
     const last = this.words[this.words.length - 1];
-    if (!/[.!?]$/.test(last.text)) last.text += '.';
+    if (last.source === 'user' && !/[.!?]$/.test(last.text)) last.text += '.';
   }
 
   update(dtMs = 16) {
