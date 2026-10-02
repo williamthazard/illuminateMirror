@@ -87,6 +87,41 @@ for (const v of MIRROR_VIDEOS) {
   styleVideoSourceEl.appendChild(opt);
 }
 
+// Auto-rotates the video source (camera + mirror clips) on its own, so the
+// piece keeps changing unattended. A random 30-60s timer doesn't switch
+// immediately — it only arms a pending switch, carried out at the next
+// utterance boundary (speech or corpus, wherever that falls) via
+// checkAutoRotate() rather than cutting mid-sentence. Every 3rd switch is
+// the camera; the other two of three pick a random mirror clip different
+// from the one currently showing, so the change is always visible.
+const AUTO_ROTATE_MIN_MS = 30000;
+const AUTO_ROTATE_MAX_MS = 60000;
+let autoRotateCount = 0;
+let autoRotatePending = false;
+let autoRotateTimer = null;
+
+function scheduleAutoRotate() {
+  clearTimeout(autoRotateTimer);
+  const delay = AUTO_ROTATE_MIN_MS + Math.random() * (AUTO_ROTATE_MAX_MS - AUTO_ROTATE_MIN_MS);
+  autoRotateTimer = setTimeout(() => { autoRotatePending = true; }, delay);
+}
+
+function checkAutoRotate() {
+  if (!autoRotatePending) return;
+  autoRotatePending = false;
+  autoRotateCount++;
+  let nextId;
+  if (autoRotateCount % 3 === 0) {
+    nextId = 'camera';
+  } else {
+    const others = MIRROR_VIDEOS.map((v) => v.id).filter((id) => id !== styleVideoSourceEl.value);
+    nextId = others[Math.floor(Math.random() * others.length)];
+  }
+  styleVideoSourceEl.value = nextId;
+  styleVideoSourceEl.dispatchEvent(new Event('input', { bubbles: true }));
+  scheduleAutoRotate();
+}
+
 // Errors don't render on screen (this runs unattended, projected) — just
 // logged for whoever's at a laptop during tech rehearsal.
 function logError(msg) {
@@ -849,13 +884,17 @@ function onPhrase(text, isFinal) {
       spokenVolumes[idx] = volume;
     }
     spokenWords = words;
-    if (cut) textLayer.finishUtterance();
+    if (cut) {
+      textLayer.finishUtterance();
+      checkAutoRotate();
+    }
     textLayer.setPhrase(words.slice(chunkStart).join(' '), { dim: false, volume });
   }
   if (isFinal) {
     flushUserNotes();
     historyLayer.endUtterance();
     textLayer.finishUtterance();
+    checkAutoRotate();
   }
 }
 
@@ -884,6 +923,7 @@ const monologue = new Monologue({
   onFinal: () => {
     historyLayer.endUtterance();
     textLayer.finishUtterance();
+    checkAutoRotate();
   },
 });
 
@@ -935,6 +975,7 @@ startBtn.addEventListener('click', () => {
   started = true;
   recognizer.start();
   monologue.start();
+  scheduleAutoRotate();
   // Camera is optional — if it's denied or absent, the video fill just
   // never kicks in and everything else runs exactly as before.
   startVideoInput();
@@ -962,4 +1003,13 @@ window.__illuminate = {
   micPassthrough,
   textLayer,
   historyLayer,
+  // Lets a rehearsal force the next auto video-rotation right now instead
+  // of waiting out the random 30-60s timer: __illuminate.autoRotate.forcePending()
+  // arms it, same as the real timer would, for checkAutoRotate() to pick up
+  // at the next utterance boundary.
+  autoRotate: {
+    get count() { return autoRotateCount; },
+    forcePending: () => { autoRotatePending = true; },
+    check: checkAutoRotate,
+  },
 };
