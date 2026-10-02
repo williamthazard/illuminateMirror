@@ -11,6 +11,7 @@ import { MicPassthrough, listAudioOutputDevices } from './micPassthrough.js';
 // ---- DOM --------------------------------------------------------------
 const glCanvas = document.getElementById('gl');
 const frameRingEl = document.getElementById('frameRing');
+const frameInnerLineEl = document.getElementById('frameInnerLine');
 const frameGhostEls = [...document.querySelectorAll('.frameGhost')];
 const dotEl = document.getElementById('dot');
 const startOverlay = document.getElementById('start');
@@ -492,8 +493,8 @@ function onStyleInput() {
 // Its resting color is the average color of the background video (whichever
 // source is playing — a mirror clip or the camera), or white when there's no
 // video. When loud it heads to a vivid, saturated version of that same hue.
-const RING_REST = { width: 3 };
-const RING_LOUD = { sat: 100, light: 58, width: 9 };
+const RING_REST = { width: 5 };
+const RING_LOUD = { sat: 100, light: 54, width: 16 };
 const RING_FALLBACK_HUE = 205; // hue to saturate toward when the base color is white/gray
 const RING_MIN_LIGHT = 55;     // a dark video's average is lifted to this, or the ring would vanish on black
 const RING_GRAY_SAT = 6;       // below this saturation the base has no meaningful hue
@@ -505,11 +506,14 @@ const RING_FLOOR_OFFSET_DB = 10;
 // the ring is visibly alive during speech even if the room is quiet), and
 // while the corpus monologue is running it's scaled down by
 // RING_CORPUS_GAIN so the piece's own output stirs it less.
-const RING_USER_BASELINE = 0.25;
-const RING_CORPUS_GAIN = 0.65;
+const RING_USER_BASELINE = 0.35;
+const RING_CORPUS_GAIN = 0.85;
 const RING_ATTACK_MS = 60;
 const RING_RELEASE_MS = 500;
 let ringLevel = 0;
+
+// Inset of the thin inner line from the main ring's own box, in px.
+const FRAME_INNER_LINE_GAP_PX = 12;
 
 // Ghost rings: fainter, thinner copies of the outline, each jumping to its own
 // new random offset every few tenths of a second (a fresh random direction,
@@ -518,10 +522,10 @@ let ringLevel = 0;
 // second sits farther out and fainter than the first (one entry per element
 // in the page).
 const GHOSTS = [
-  { maxOffsetPx: 26, maxAlpha: 0.55 },
-  { maxOffsetPx: 42, maxAlpha: 0.38 },
+  { maxOffsetPx: 42, maxAlpha: 0.8 },
+  { maxOffsetPx: 68, maxAlpha: 0.6 },
 ].map((g, i) => ({ ...g, el: frameGhostEls[i], dirX: 0, dirY: 0, nextJumpT: 0, x: 0, y: 0 }));
-const GHOST_WIDTH_PX = 2;
+const GHOST_WIDTH_PX = 3;
 const GHOST_JUMP_MIN_MS = 70;
 const GHOST_JUMP_MAX_MS = 210;
 const GHOST_FOLLOW_MS = 60;
@@ -610,6 +614,11 @@ function resize() {
     frameRingEl.style.width = `${boxW}px`;
     frameRingEl.style.height = `${boxH}px`;
     frameRingEl.hidden = false;
+    frameInnerLineEl.style.left = `${left + FRAME_INNER_LINE_GAP_PX}px`;
+    frameInnerLineEl.style.top = `${top + FRAME_INNER_LINE_GAP_PX}px`;
+    frameInnerLineEl.style.width = `${Math.max(0, boxW - FRAME_INNER_LINE_GAP_PX * 2)}px`;
+    frameInnerLineEl.style.height = `${Math.max(0, boxH - FRAME_INNER_LINE_GAP_PX * 2)}px`;
+    frameInnerLineEl.hidden = false;
     for (const ghost of GHOSTS) {
       ghost.el.style.left = `${left}px`;
       ghost.el.style.top = `${top}px`;
@@ -625,6 +634,7 @@ function resize() {
     glCanvas.style.right = '';
     glCanvas.style.bottom = '';
     frameRingEl.hidden = true;
+    frameInnerLineEl.hidden = true;
     for (const ghost of GHOSTS) ghost.el.hidden = true;
   }
 
@@ -673,12 +683,13 @@ function frame(t) {
     const baseLight = Math.max(base.l, RING_MIN_LIGHT);
     const sat = base.s + (RING_LOUD.sat - base.s) * ringLevel;
     const light = baseLight + (RING_LOUD.light - baseLight) * ringLevel;
-    frameRingEl.style.setProperty('--ring-color', `hsl(${hue.toFixed(1)} ${sat.toFixed(1)}% ${light.toFixed(1)}%)`);
+    const ringColorCss = `hsl(${hue.toFixed(1)} ${sat.toFixed(1)}% ${light.toFixed(1)}%)`;
+    frameRingEl.style.setProperty('--ring-color', ringColorCss);
+    frameInnerLineEl.style.setProperty('--ring-color', ringColorCss);
     const width = RING_REST.width + (RING_LOUD.width - RING_REST.width) * ringLevel;
     frameRingEl.style.setProperty('--ring-spread', `${width.toFixed(2)}px`);
 
     const ghostFollow = 1 - Math.exp(-dtMs / GHOST_FOLLOW_MS);
-    const ringColorValue = frameRingEl.style.getPropertyValue('--ring-color');
     for (const ghost of GHOSTS) {
       if (t >= ghost.nextJumpT) {
         const angle = Math.random() * Math.PI * 2;
@@ -691,7 +702,7 @@ function frame(t) {
       ghost.y += (ghost.dirY * ghost.maxOffsetPx * ringLevel - ghost.y) * ghostFollow;
       ghost.el.style.transform = `translate(${ghost.x.toFixed(2)}px, ${ghost.y.toFixed(2)}px)`;
       ghost.el.style.opacity = (ghost.maxAlpha * ringLevel).toFixed(3);
-      ghost.el.style.setProperty('--ring-color', ringColorValue);
+      ghost.el.style.setProperty('--ring-color', ringColorCss);
       ghost.el.style.setProperty('--ghost-width', `${GHOST_WIDTH_PX}px`);
     }
   }
