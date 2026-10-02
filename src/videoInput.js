@@ -13,10 +13,12 @@
 // the live camera. Labels are generic since the clips' content isn't
 // meaningful to the code — just distinct selectable options.
 export const MIRROR_VIDEOS = [
-  { id: 'mirror1', label: 'Mirror clip 1', path: '/videos/8724310-uhd_2160_4096_25fps.mp4' },
-  { id: 'mirror2', label: 'Mirror clip 2', path: '/videos/12908966-uhd_2160_3840_24fps.mp4' },
-  { id: 'mirror3', label: 'Mirror clip 3', path: '/videos/15559259_2160_3840_50fps.mp4' },
-  { id: 'mirror4', label: 'Mirror clip 4', path: '/videos/14652363_1080_1920_30fps.mp4' },
+  { id: 'mirror1', label: 'Mirror clip 1', path: '/videos/12932316_2160_3840_24fps.mp4' },
+  { id: 'mirror2', label: 'Mirror clip 2', path: '/videos/15559259_2160_3840_50fps.mp4' },
+  { id: 'mirror3', label: 'Mirror clip 3', path: '/videos/18656912-uhd_2160_3840_60fps.mp4' },
+  { id: 'mirror4', label: 'Mirror clip 4', path: '/videos/8164150-hd_1080_1920_30fps.mp4' },
+  { id: 'mirror5', label: 'Mirror clip 5', path: '/videos/8724310-uhd_2160_4096_25fps.mp4' },
+  { id: 'mirror6', label: 'Mirror clip 6', path: '/videos/8861615-uhd_2160_4096_25fps.mp4' },
 ];
 
 // Devices only get real labels once the page has been granted camera

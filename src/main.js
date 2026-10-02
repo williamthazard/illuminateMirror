@@ -78,7 +78,7 @@ const stylePassthroughDeviceEl = document.getElementById('stylePassthroughDevice
 
 // Mirror clip options aren't hardcoded in index.html — added here from the
 // single manifest in videoInput.js so there's one place that knows about them.
-// Also doubles as the 1-5 number-key shortcut order below (index 0 -> '1').
+// Also doubles as the number-key shortcut order below (index 0 -> '1').
 const VIDEO_SOURCE_ORDER = ['camera', ...MIRROR_VIDEOS.map((v) => v.id)];
 for (const v of MIRROR_VIDEOS) {
   const opt = document.createElement('option');
