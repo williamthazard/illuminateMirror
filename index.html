@@ -32,7 +32,7 @@
      softened a little rather than left sharp. */
   #frameRing {
     position: fixed; pointer-events: none; z-index: 4;
-    border-radius: 16px;
+    border-radius: 8px;
     box-shadow: 0 0 0 var(--ring-spread, 5px) var(--ring-color, #fff);
   }
   /* Thin second line a little inside the main ring, same reactive color —
@@ -41,14 +41,14 @@
      main ring's own box by frameInnerLineGapPx. */
   #frameInnerLine {
     position: fixed; pointer-events: none; z-index: 4;
-    border-radius: 10px;
+    border-radius: 5px;
     box-shadow: 0 0 0 1.5px var(--ring-color, #fff);
   }
   /* Faint echoes of the ring, jumped to random offsets by main.js as the sound
      gets louder; fully transparent at rest. Same box as #frameRing. */
   .frameGhost {
     position: fixed; pointer-events: none; z-index: 4;
-    border-radius: 16px;
+    border-radius: 8px;
     opacity: 0;
     box-shadow: 0 0 0 var(--ghost-width, 2px) var(--ring-color, #fff);
   }
