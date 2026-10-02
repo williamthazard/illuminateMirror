@@ -94,8 +94,8 @@ for (const v of MIRROR_VIDEOS) {
 // checkAutoRotate() rather than cutting mid-sentence. Every 3rd switch is
 // the camera; the other two of three pick a random mirror clip different
 // from the one currently showing, so the change is always visible.
-const AUTO_ROTATE_MIN_MS = 30000;
-const AUTO_ROTATE_MAX_MS = 60000;
+const AUTO_ROTATE_MIN_MS = 20000;
+const AUTO_ROTATE_MAX_MS = 45000;
 let autoRotateCount = 0;
 let autoRotatePending = false;
 let autoRotateTimer = null;
