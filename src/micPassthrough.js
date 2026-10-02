@@ -43,7 +43,14 @@ export class MicPassthrough {
       if (!navigator.mediaDevices?.getUserMedia) {
         throw new Error('getUserMedia unavailable (page must be on localhost or https)');
       }
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Chrome's default audio constraints turn on echo cancellation, noise
+      // suppression and automatic gain control — all tuned for voice chat,
+      // and together they can quietly squash an already-clean, strong
+      // signal well below what the gain stage below can recover. Off here
+      // means what goes out is a straight copy of what's coming in.
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      });
       if (generation !== this.generation) {
         // stop() ran while the permission prompt was pending — this attempt
         // is stale, so undo it instead of reviving a feature that was
