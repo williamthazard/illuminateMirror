@@ -39,15 +39,17 @@ const PARAMS = [
   { ch: GRANULAR_CHANNEL, cc: 8, lo: 0, hi: 127, toggle: true },
   // 7  Pitch interval on/offs — 3 bits → octaves / fifths+fourths / sub-octaves
   { ch: GRANULAR_CHANNEL, bits: [9, 10, 11] },
-  // 8  Position jitter — full range
+  // 8  Reverse toggle — on/off toggle
+  { ch: GRANULAR_CHANNEL, cc: 12, toggle: true },
+  // 9  Position jitter — full range
   { ch: GRANULAR_CHANNEL, cc: 4, lo: 0, hi: 127 },
-  // 9  Trigger distribution — full range
+  // 10 Trigger distribution — full range
   { ch: GRANULAR_CHANNEL, cc: 5, lo: 0, hi: 127 },
-  // 10 Grain window — full range
+  // 11 Grain window — full range
   { ch: GRANULAR_CHANNEL, cc: 6, lo: 0, hi: 127 },
-  // 11 Delay input level — 25–75%  →  CC 32–95
+  // 12 Delay input level — 25–75%  →  CC 32–95
   { ch: LEVELS_CHANNEL, cc: 2, lo: 32, hi: 95 },
-  // 12 Buffer preservation — 25–75%  →  CC 32–95
+  // 13 Buffer preservation — 25–75%  →  CC 32–95
   { ch: LEVELS_CHANNEL, cc: 3, lo: 32, hi: 95 },
 ];
 
