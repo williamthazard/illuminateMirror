@@ -96,7 +96,7 @@ for (const v of MIRROR_VIDEOS) {
 // from the one currently showing, so the change is always visible.
 const AUTO_ROTATE_MIN_MS = 20000;
 const AUTO_ROTATE_MAX_MS = 45000;
-const GRANULAR_RANDOM_CCS = [2, 6, 8];
+const GRANULAR_RANDOM_CCS = [2, 4, 6];
 let autoRotateCount = 0;
 let autoRotatePending = false;
 let autoRotateTimer = null;
@@ -123,8 +123,8 @@ function checkAutoRotate() {
   // A fresh random value for a few of the granular engine's own CCs (see
   // the external SuperCollider chart — channel 3/0xB2 is its CC/mixer
   // surface, reserved for exactly this, per the note in midiOutput.js):
-  // CC2 grain density multiplier, CC6 grain window shape, CC8 buffer
-  // freeze. Picked out for the video-change moment specifically, not the
+  // CC2 grain density multiplier, CC4 position jitter, CC6 grain window
+  // shape. Picked out for the video-change moment specifically, not the
   // other CCs on that surface.
   for (const ccNumber of GRANULAR_RANDOM_CCS) {
     midiOutput.sendCC(GRANULAR_CHANNEL, ccNumber, Math.floor(Math.random() * 128));
